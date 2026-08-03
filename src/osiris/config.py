@@ -146,13 +146,21 @@ class RiskLimits(BaseSettings):
             # Very small. Concentration is unavoidable: at $366 a 5-name book is
             # $73 per position, which is about the smallest that survives being
             # rebalanced at all.
+            #
+            # Sector limits are DISABLED here (1.0), not merely loosened. On a
+            # five-name book, two names in one industry is already 40-70% "sector
+            # concentration" -- the gate would veto routine picks while adding
+            # nothing a 35% single-name cap and the stop-loss do not already
+            # provide. Sector diversification is a statistical property of books
+            # with dozens of names; pretending a $100 account has it only stops
+            # the agent from trading at all.
             preset = {
                 "max_trade_notional_pct": 0.25,
                 "max_symbol_weight": 0.35,
                 "target_position_count": 5,
                 "min_position_count": 2,
-                "max_sector_weight": 0.70,
-                "max_sector_deviation": 0.60,
+                "max_sector_weight": 1.0,
+                "max_sector_deviation": 1.0,
                 # A tiny account rebalancing 20 times a day is pure cost.
                 "daily_order_budget": 15,
             }

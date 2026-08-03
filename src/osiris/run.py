@@ -623,8 +623,24 @@ async def run_serve(agent: LiveAgent, *, host: str, port: int, interval: int) ->
         again. This sleeps until the next moment worth waking for.
         """
         consecutive_failures = 0
+        # The session this loop last COMPLETED a cycle for. With interval=0 the
+        # schedule answers "wake now" for the entire trading window, so without
+        # this the loop re-ran the full research funnel every ~60s all session:
+        # dozens of LLM passes and rebalance attempts per day on a strategy
+        # designed for one. One cycle per session means exactly that.
+        last_session_run: str = ""
         while True:
+            from osiris.data.macro import session_date
+
             wake = next_wake(interval_minutes=interval)
+            if (
+                interval <= 0
+                and wake.should_trade
+                and session_date().isoformat() == last_session_run
+            ):
+                # Already traded this session; nothing to do until tomorrow.
+                await asyncio.sleep(300)
+                continue
             wait = wake.seconds_from()
             if wait > 1:
                 log.info(
@@ -640,8 +656,12 @@ async def run_serve(agent: LiveAgent, *, host: str, port: int, interval: int) ->
                     wait = wake.seconds_from()
 
             try:
-                await agent.run_cycle()
+                result = await agent.run_cycle()
                 consecutive_failures = 0
+                # Mark the session done only when the cycle actually RAN -- a
+                # skip (market closed on arrival) must not eat the day's cycle.
+                if result is not None and result.ran:
+                    last_session_run = result.as_of.isoformat()
             except Exception as exc:
                 # A failed cycle must not kill the server: the dashboard is how
                 # an operator sees that cycles are failing.

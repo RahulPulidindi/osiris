@@ -106,6 +106,30 @@ class TestSectorConcentration:
         d = kernel.evaluate(make_intent(notional=1_000), state)
         assert VetoCode.SECTOR_DEVIATION not in d.vetoes
 
+    def test_unknown_sector_abstains_rather_than_vetoing(self, kernel) -> None:
+        """Missing sector data is a data problem, not a concentration.
+
+        Regression from live: the fundamentals feed returned no sector for JPM,
+        UNH, and V. Every unclassified name landed in one "Unknown" bucket that
+        the benchmark weights at 0.0, so on a small book every single buy read
+        as a massive sector overweight and the agent could not open ANY
+        position. Both sector gates must abstain on "Unknown" -- the single-name
+        cap still bounds the position.
+        """
+        positions = (make_position("MYST1", 30_000.0, sector="Unknown"),)
+        state = make_state(
+            make_portfolio(equity=100_000.0, positions=positions),
+            symbols=("MYST2",),
+            benchmark={"Technology": 0.30},
+        )
+        # Force the intent's symbol to resolve as Unknown.
+        state.sectors.pop("MYST2", None)
+
+        d = kernel.evaluate(make_intent("MYST2", notional=1_500), state)
+
+        assert VetoCode.SECTOR_DEVIATION not in d.vetoes
+        assert VetoCode.SECTOR_WEIGHT_CAP not in d.vetoes
+
 
 class TestBetaBudget:
     def test_high_beta_book_blocked(self, kernel) -> None:

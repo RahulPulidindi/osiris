@@ -76,6 +76,14 @@ def gate_sector_weight(
     if equity <= 0:
         return [(VetoCode.SECTOR_WEIGHT_CAP, "zero equity")]
     sector = state.sector_of(intent.symbol)
+    # "Unknown" is missing DATA, not a sector. Lumping every unclassified name
+    # into one bucket manufactures a concentration that does not exist: a live
+    # incident had JPM, UNH, and V all "Unknown" (the fundamentals feed returned
+    # nothing) and every buy was vetoed for crowding an industry no one holds.
+    # The single-name cap still bounds each position, which is the real
+    # protection this gate would add for an unclassifiable symbol.
+    if sector == "Unknown":
+        return []
     current = state.portfolio.sector_weights().get(sector, 0.0)
     projected = current + intent.notional_usd / equity
     if projected > limits.max_sector_weight:
@@ -107,6 +115,12 @@ def gate_sector_deviation(
         return [(VetoCode.SECTOR_DEVIATION, "zero equity")]
 
     sector = state.sector_of(intent.symbol)
+    # Missing sector data: abstain rather than invent a bet. A benchmark has no
+    # "Unknown" sector (weight 0.0), so any unclassified buy instantly reads as
+    # an infinite overweight -- which is a statement about the data feed, not
+    # the portfolio. See gate_sector_weight for the incident this caused.
+    if sector == "Unknown":
+        return []
     current = state.portfolio.sector_weights().get(sector, 0.0)
     projected = current + intent.notional_usd / equity
     target = benchmark.get(sector, 0.0)
