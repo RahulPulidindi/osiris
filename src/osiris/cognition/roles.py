@@ -286,7 +286,7 @@ class CognitionPipeline:
             for s in candidates
         ]
         user = "Attack each of these theses:\n\n" + "\n\n".join(blocks)
-        # 16,000. The red team runs on a REASONING model (gpt-5), which spends
+        # 16,000. The red team runs on a REASONING model (gpt-5 family), which spends
         # tokens thinking before it emits anything -- so its usable output budget is
         # far smaller than the ceiling suggests. At 6,000 it produced 4 of 9 reviews
         # and truncated, and the unreviewed names then formed the whole book.

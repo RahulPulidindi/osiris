@@ -38,7 +38,26 @@ class Role(str, Enum):
 
 
 # Deliberate family separation between STRATEGIST and RED_TEAM.
+#
+# COST TIER: the default set runs every role on budget models. The four-role
+# architecture, the red team's veto, and family separation are all preserved --
+# only the price per token changes. On a small account the strategy's edge (if
+# any) is breadth and discipline, not marginal model IQ, and a $0.70 research
+# cycle against a $100 book is 0.7% of equity EVERY DAY, which is a larger drag
+# than the spread. Scale the models up with the account via OSIRIS_MODEL_*.
 DEFAULT_MODELS: dict[Role, str] = {
+    Role.TRIAGE: "google/gemini-2.5-flash-lite",
+    Role.ANALYST: "google/gemini-2.5-flash",
+    Role.STRATEGIST: "google/gemini-2.5-flash",
+    Role.RED_TEAM: "openai/gpt-5-mini",  # different family, holds the veto
+    Role.PM: "google/gemini-2.5-flash",
+    Role.POSTMORTEM: "google/gemini-2.5-flash-lite",
+    Role.VISION: "google/gemini-2.5-flash-lite",
+}
+
+# The premium set the defaults replaced. Selectable per-role from the
+# environment; documented here so the upgrade path is one env var, not a diff.
+PREMIUM_MODELS: dict[Role, str] = {
     Role.TRIAGE: "google/gemini-2.5-flash",
     Role.ANALYST: "google/gemini-2.5-flash",
     Role.STRATEGIST: "anthropic/claude-sonnet-4.5",
@@ -51,11 +70,29 @@ DEFAULT_MODELS: dict[Role, str] = {
 # Approximate USD per 1M tokens (input, output). Used for the ceiling, so
 # over-estimating is the safe direction.
 MODEL_PRICING: dict[str, tuple[float, float]] = {
+    "google/gemini-2.5-flash-lite": (0.10, 0.40),
     "google/gemini-2.5-flash": (0.30, 2.50),
+    "openai/gpt-5-mini": (0.25, 2.00),
     "anthropic/claude-sonnet-4.5": (3.00, 15.00),
     "openai/gpt-5": (1.25, 10.00),
 }
 DEFAULT_PRICING = (3.00, 15.00)
+
+
+def models_from_env() -> dict[Role, str]:
+    """Per-role model overrides: OSIRIS_MODEL_STRATEGIST=... etc.
+
+    Env-driven so upgrading models with account size is a config change on the
+    server, not a code deploy. Unset roles keep the budget defaults.
+    """
+    import os
+
+    out: dict[Role, str] = {}
+    for role in Role:
+        value = os.environ.get(f"OSIRIS_MODEL_{role.name}", "").strip()
+        if value:
+            out[role] = value
+    return out
 
 
 class BudgetExhausted(RuntimeError):
@@ -228,7 +265,8 @@ class LLMClient:
     ) -> None:
         self.api_key = api_key
         self.daily_usd_ceiling = daily_usd_ceiling
-        self.models = {**DEFAULT_MODELS, **(models or {})}
+        # Budget defaults <- env overrides <- explicit constructor argument.
+        self.models = {**DEFAULT_MODELS, **models_from_env(), **(models or {})}
         self.ledger = ledger or CostLedger()
         self.timeout = timeout
         self._semaphore = asyncio.Semaphore(max_concurrency)

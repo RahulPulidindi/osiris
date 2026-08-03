@@ -1,0 +1,36 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+mcp-auth.json
+.osiris/
+
+# Runtime state
+data/cache/
+data/journal.db
+data/journal.db-*
+# Journals are machine-local evidence, not source. They are the audit trail and
+# tax substantiation for a specific account, so they must never be committed.
+data/*.jsonl
+logs/
+*.log
+KILL_SWITCH
+
+# Frontend
+node_modules/
+web/dist/
+web/.vite/
+.DS_Store
