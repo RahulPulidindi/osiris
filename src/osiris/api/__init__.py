@@ -34,16 +34,28 @@ def _mount_dashboard(app) -> None:
     Mounted after the API routers so `/api/*` always wins, and skipped silently
     when `web/dist` is absent -- an API-only deployment is still valid.
     """
+    import os
     from pathlib import Path
 
     from fastapi.staticfiles import StaticFiles
 
-    # src/osiris/api/__init__.py -> src/osiris -> src -> repo root
-    dist = (
-        Path(__file__).resolve().parent.parent.parent.parent / "web" / "dist"
-    )
-    if (dist / "index.html").exists():
-        app.mount("/", StaticFiles(directory=dist, html=True), name="dashboard")
+    # Where the built dashboard may live, in preference order:
+    #   1. OSIRIS_WEB_DIST -- explicit, for any layout.
+    #   2. CWD/web/dist -- the Docker case: the package is pip-installed into
+    #      site-packages, so a source-relative path points into the Python
+    #      library tree, but the container's workdir is the app root. This was
+    #      a real bug: the container served the API and a 404 for the UI.
+    #   3. Source-relative -- the editable-install/dev case.
+    candidates = [
+        Path(os.environ["OSIRIS_WEB_DIST"]) if os.environ.get("OSIRIS_WEB_DIST") else None,
+        Path.cwd() / "web" / "dist",
+        # src/osiris/api/__init__.py -> src/osiris -> src -> repo root
+        Path(__file__).resolve().parent.parent.parent.parent / "web" / "dist",
+    ]
+    for dist in candidates:
+        if dist is not None and (dist / "index.html").exists():
+            app.mount("/", StaticFiles(directory=dist, html=True), name="dashboard")
+            return
 
 
 __all__ = [
