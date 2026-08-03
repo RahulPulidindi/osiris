@@ -445,8 +445,16 @@ class MCPBroker(Broker):
 
     async def review(self, request: OrderRequest) -> ReviewResult:
         """Mandatory simulation. A failed review is a hard stop, not a warning."""
+        # `review_equity_order` and `place_equity_order` have DIFFERENT schemas:
+        # review does not accept `ref_id` (verified in the tool snapshot), and
+        # with additionalProperties:false the extra key rejects the whole call.
+        # Live incident: every order of the day failed at review with
+        # 'unknown argument "ref_id"' -- the agent researched, decided, and
+        # could not buy anything.
+        args = self._order_args(request)
+        args.pop("ref_id", None)
         try:
-            result = await self.adapter.call("reviewOrder", self._order_args(request))
+            result = await self.adapter.call("reviewOrder", args)
         except ToolCallFailed as exc:
             log.warning("mcp_broker.review_rejected", symbol=request.symbol, error=str(exc))
             return ReviewResult(False, message=f"review rejected: {exc}")

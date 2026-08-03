@@ -513,6 +513,49 @@ class TestAccountSelection:
 
         assert await b.resolve_account() == "777888999"
 
+
+class TestReviewPlaceSchemaSplit:
+    """Regression: review_equity_order does not accept `ref_id`, place does.
+
+    With additionalProperties:false the extra key rejects the whole call, so
+    every live order of a session failed at review with 'unknown argument
+    "ref_id"' and the agent could not open a single position.
+    """
+
+    def broker(self, responses: dict):
+        from osiris.execution.mcp_broker import MCPBroker
+
+        return MCPBroker(FakeAdapter(responses))
+
+    async def test_review_omits_ref_id_but_place_sends_it(self):
+        from osiris.execution.broker import OrderRequest
+        from osiris.execution.mcp_broker import MCPBroker
+        from osiris.types import OrderKind, Side
+
+        adapter = FakeAdapter(
+            {
+                "listAccounts": {"results": [{"account_number": ACCOUNT}]},
+                "reviewOrder": {"estimated_price": 100.0, "estimated_quantity": 0.2},
+            }
+        )
+        broker = MCPBroker(adapter)
+        await broker.resolve_account()
+        request = OrderRequest(
+            symbol="AAPL",
+            side=Side.BUY,
+            notional_usd=20.0,
+            kind=OrderKind.MARKET,
+            idempotency_key="a" * 32,
+        )
+
+        await broker.review(request)
+
+        # The wire call for review must NOT carry ref_id...
+        assert "ref_id" not in dict(adapter.calls)["reviewOrder"]
+        # ...while the order-args builder (used by place) must keep it, so
+        # duplicate protection survives on the placement side.
+        assert "ref_id" in broker._order_args(request)
+
     async def test_equity_is_found_inside_an_envelope(self):
         b = self.broker(
             {
