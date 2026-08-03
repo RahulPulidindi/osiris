@@ -203,6 +203,53 @@ def _find_number(payload: Any, keys: tuple[str, ...], *, depth: int = 0) -> floa
     return None
 
 
+def _find_string(payload: Any, keys: tuple[str, ...], *, depth: int = 0) -> str | None:
+    """Recursive string finder, mirroring `_find_number`.
+
+    Same envelope problem, same fix: Robinhood wraps responses in `{"data": ...}`
+    (sometimes `{"data": {"order": ...}}`), so top-level reads silently miss
+    fields that are present one level down.
+    """
+    if depth > 6:
+        return None
+    if isinstance(payload, dict):
+        for key in keys:
+            value = payload.get(key)
+            if isinstance(value, str | int) and str(value).strip():
+                return str(value)
+        for key in ("data", *[k for k in payload if k != "data"]):
+            child = payload.get(key)
+            if isinstance(child, dict | list):
+                found = _find_string(child, keys, depth=depth + 1)
+                if found is not None:
+                    return found
+        return None
+    if isinstance(payload, list):
+        for item in payload:
+            found = _find_string(item, keys, depth=depth + 1)
+            if found is not None:
+                return found
+    return None
+
+
+def _find_list(payload: Any, keys: tuple[str, ...], *, depth: int = 0) -> list | None:
+    """Recursive list finder, for `executions`/`fills` arrays inside envelopes."""
+    if depth > 6:
+        return None
+    if isinstance(payload, dict):
+        for key in keys:
+            value = payload.get(key)
+            if isinstance(value, list) and value:
+                return value
+        for key in ("data", *[k for k in payload if k != "data"]):
+            child = payload.get(key)
+            if isinstance(child, dict | list):
+                found = _find_list(child, keys, depth=depth + 1)
+                if found is not None:
+                    return found
+    return None
+
+
 def _coerce_number(value: Any) -> float | None:
     """Numbers arrive as floats, ints, or decimal strings depending on the tool."""
     if isinstance(value, bool):
@@ -524,10 +571,14 @@ class MCPBroker(Broker):
             ) from exc
 
         payload = _extract_payload(result)
+        # Recursive, like the review parser: place responses arrive in the same
+        # {"data": ...} envelope. A shallow read returned no order id and no
+        # state, so five real fills were booked as nothing and reconciliation
+        # had to adopt them a cycle later.
         order_id = str(
-            payload.get("id") or payload.get("order_id") or payload.get("ref_id") or ""
+            _find_string(payload, ("id", "order_id", "ref_id")) or ""
         )
-        state = str(payload.get("state") or payload.get("status") or "").lower()
+        state = str(_find_string(payload, ("state", "status")) or "").lower()
         if state in {"rejected", "cancelled", "canceled", "failed"}:
             return PlaceResult(
                 order_id=order_id,
@@ -561,9 +612,9 @@ class MCPBroker(Broker):
         """
         from datetime import UTC, datetime
 
-        executions = payload.get("executions") or payload.get("fills") or []
+        executions = _find_list(payload, ("executions", "fills")) or []
         out: list[Fill] = []
-        order_id = str(payload.get("id") or payload.get("order_id") or "")
+        order_id = str(_find_string(payload, ("id", "order_id")) or "")
 
         if isinstance(executions, list) and executions:
             for ex in executions:
@@ -587,8 +638,8 @@ class MCPBroker(Broker):
                 )
             return tuple(out)
 
-        qty = _first_number(payload, "cumulative_quantity", "filled_quantity")
-        px = _first_number(payload, "average_price", "executed_price")
+        qty = _find_number(payload, ("cumulative_quantity", "filled_quantity"))
+        px = _find_number(payload, ("average_price", "executed_price"))
         if qty and px and qty > 0 and px > 0:
             out.append(
                 Fill(
