@@ -1,0 +1,209 @@
+/* ==========================================================================
+   OSIRIS — night desk
+   --------------------------------------------------------------------------
+   One dark room, one bright number. The account value is the protagonist;
+   everything else is set quiet around it. No cards-on-cards, no neon spray:
+   near-black ink, warm grey text, and a single phosphor green that is spent
+   only on money made and the word LIVE. Red only for money lost and stops.
+   ========================================================================== */
+
+@import "tailwindcss";
+
+@theme {
+  /* Surfaces: warm near-black, one step up for insets, hairline borders. */
+  --color-bg: #0d0e0c;
+  --color-bg-raise: #131512;
+  --color-bg-inset: #191b17;
+  --color-line: #262922;
+  --color-line-soft: #1c1e1a;
+
+  /* Text: warm paper-white down to ash. */
+  --color-fg: #ebe8df;
+  --color-fg-2: #a8a597;
+  --color-fg-3: #6e6c60;
+  --color-fg-4: #47463d;
+
+  /* Signal: phosphor green for gain/live, ember red for loss/halt. */
+  --color-up: #4ade80;
+  --color-up-dim: #22633c;
+  --color-down: #f87171;
+  --color-down-dim: #7f2d2d;
+  --color-amber: #d9a441;
+
+  --font-sans: "Instrument Sans Variable", "Instrument Sans", system-ui, sans-serif;
+  --font-mono: "Spline Sans Mono Variable", "Spline Sans Mono", ui-monospace, monospace;
+  --font-word: "Instrument Serif", Georgia, serif;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  :root { color-scheme: dark; }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    overscroll-behavior: none;
+    /* A single, very faint pool of light behind the top of the page. It keeps
+       the large dark field from reading flat without ever announcing itself. */
+    background-image: radial-gradient(
+      ellipse 90rem 34rem at 24% -6rem,
+      color-mix(in srgb, var(--color-up) 4.5%, transparent),
+      transparent 70%
+    );
+    background-repeat: no-repeat;
+  }
+
+  ::selection { background: var(--color-up-dim); color: var(--color-fg); }
+
+  * { scrollbar-width: thin; scrollbar-color: var(--color-line) transparent; }
+
+  :focus-visible {
+    outline: 1.5px solid var(--color-up);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* Wordmark: serif, lowercase, the only serif on the page. */
+  .wordmark {
+    font-family: var(--font-word);
+    font-size: 1.625rem;
+    letter-spacing: 0.01em;
+    line-height: 1;
+  }
+
+  /* Numerals. Every figure on the page is mono + tabular. */
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  /* The hero figure: account value. Large, light weight, tight. */
+  .hero-num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: clamp(2.75rem, 6vw, 4.25rem);
+    font-weight: 300;
+    letter-spacing: -0.035em;
+    line-height: 1;
+  }
+
+  /* Section label: tiny caps, wide tracking. */
+  .label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-fg-3);
+  }
+
+  .up { color: var(--color-up); }
+  .down { color: var(--color-down); }
+  .flat { color: var(--color-fg-3); }
+
+  /* Status dot beside the mode word. Pulses only while live. */
+  .dot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 9999px;
+    background: var(--color-fg-4);
+  }
+  .dot-live { background: var(--color-up); animation: breathe 2.4s var(--ease-out) infinite; }
+  .dot-halt { background: var(--color-down); animation: breathe 1.2s var(--ease-out) infinite; }
+  .dot-warn { background: var(--color-amber); }
+
+  @keyframes breathe {
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 35%, transparent); opacity: 1; }
+    50% { box-shadow: 0 0 0 5px transparent; opacity: 0.7; }
+  }
+
+  /* Buttons: quiet text buttons; one bordered variant for the stop control. */
+  .btn {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-fg-2);
+    background: none;
+    border: 1px solid var(--color-line);
+    border-radius: 9999px;
+    padding: 0.375rem 0.875rem;
+    cursor: pointer;
+    transition: color 140ms var(--ease-out), border-color 140ms var(--ease-out), background 140ms var(--ease-out);
+  }
+  .btn:hover:not(:disabled) { color: var(--color-fg); border-color: var(--color-fg-3); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-danger { color: var(--color-down); border-color: var(--color-down-dim); }
+  .btn-danger:hover:not(:disabled) { color: var(--color-down); border-color: var(--color-down); background: color-mix(in srgb, var(--color-down) 8%, transparent); }
+  .btn-solid {
+    background: var(--color-fg);
+    color: var(--color-bg);
+    border-color: var(--color-fg);
+  }
+  .btn-solid:hover:not(:disabled) { color: var(--color-bg); background: #fff; border-color: #fff; }
+
+  /* Row: the repeating unit for positions and activity. Hairline below, and a
+     breath of light on hover so the page answers the cursor. */
+  .row {
+    border-bottom: 1px solid var(--color-line-soft);
+    transition: background 160ms var(--ease-out);
+  }
+  .row:last-child { border-bottom: none; }
+  .row:hover { background: color-mix(in srgb, var(--color-fg) 2.5%, transparent); }
+
+  /* Side marks in the activity feed gutter. */
+  .mark-buy { box-shadow: inset 2px 0 0 0 var(--color-up-dim); }
+  .mark-sell { box-shadow: inset 2px 0 0 0 var(--color-fg-4); }
+  .mark-block { box-shadow: inset 2px 0 0 0 var(--color-down-dim); }
+
+  /* Inputs for the onboarding flow. */
+  .field {
+    width: 100%;
+    background: var(--color-bg-inset);
+    border: 1px solid var(--color-line);
+    border-radius: 6px;
+    padding: 0.625rem 0.75rem;
+    font-size: 0.9375rem;
+    color: var(--color-fg);
+    transition: border-color 140ms var(--ease-out);
+  }
+  .field::placeholder { color: var(--color-fg-4); }
+  .field:focus { outline: none; border-color: var(--color-fg-3); }
+
+  code.cmd {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    background: var(--color-bg-inset);
+    border: 1px solid var(--color-line-soft);
+    border-radius: 6px;
+    padding: 0.625rem 0.75rem;
+    color: var(--color-fg-2);
+    user-select: all;
+  }
+
+  /* Single load reveal, staggered by inline delay. */
+  .rise { animation: rise 480ms var(--ease-out) both; }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+}

@@ -1,0 +1,31 @@
+# Osiris in production: one service, one volume, restart on anything.
+#
+#   docker compose up -d --build      # start (and keep running across reboots)
+#   docker compose logs -f            # watch it think
+#   docker compose exec osiris touch /data/KILL_SWITCH   # emergency stop
+#
+# The kill switch and journals live on the `osiris-data` volume, so replacing
+# the container (updates, crashes, reboots) loses nothing.
+
+services:
+  osiris:
+    build: .
+    container_name: osiris
+    restart: unless-stopped
+    env_file: .env
+    # Bind to localhost only. The dashboard shows your balance and exposes the
+    # kill switch; reach it over an SSH tunnel or Tailscale, never the open
+    # internet. (With Tailscale on the host, keep this binding — access via
+    # `ssh -L 8030:localhost:8030` or `tailscale serve`.)
+    ports:
+      - "127.0.0.1:8030:8030"
+    volumes:
+      - osiris-data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+volumes:
+  osiris-data:

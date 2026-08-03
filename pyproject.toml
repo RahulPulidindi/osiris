@@ -1,0 +1,67 @@
+[project]
+name = "osiris"
+version = "0.1.0"
+description = "Autonomous equity ranking agent with deterministic risk kernel"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=1.29.0",
+    "pydantic>=2.13.0",
+    "pydantic-settings>=2.7.0",
+    "fastapi>=0.135.0",
+    "uvicorn[standard]>=0.52.0",
+    "httpx>=0.28.0",
+    "structlog>=25.1.0",
+    "pandas>=2.2.0",
+    "numpy>=1.26.0",
+    "scipy>=1.14.0",
+    "statsmodels>=0.14.0",
+    "matplotlib>=3.9.0",
+    "mplfinance>=0.12.10b0",
+    "apscheduler>=3.11.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.25.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.9.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/osiris"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "B", "UP", "RUF"]
+ignore = [
+    "E501",   # line length is handled by the formatter
+    "B008",   # FastAPI/Pydantic call-in-default is idiomatic
+    # `str, Enum` is deliberate: these values are serialized into the journal,
+    # the SSE stream, and the JSON API. StrEnum would change `str()` behavior on
+    # existing records and break stored payloads.
+    "UP042",
+    # Domain exception names read better without an `Error` suffix at the call
+    # site (`except OrderRejected`), and they are part of the public surface.
+    "N818",
+    # `X` is the conventional name for a design matrix in regressions.
+    "N806",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests deliberately import fixtures for their side effects and build tuples by
+# concatenation for readability in table-driven cases.
+"tests/**" = ["F401", "RUF005", "RUF059"]

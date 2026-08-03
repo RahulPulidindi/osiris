@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.osiris.agent</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/rahul/Desktop/osiris/.venv/bin/python</string>
+    <string>-m</string><string>osiris.run</string><string>--serve</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/rahul/Desktop/osiris</string>
+  <key>RunAtLoad</key><true/>
+  <!-- Restart on crash, but not on a clean exit: a process that exits 0 did so
+       deliberately. The kill switch file survives restarts either way. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key><false/>
+  </dict>
+  <!-- Give a crashed process a moment before resurrection, so a crash loop
+       cannot hammer the broker's API. -->
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>StandardOutPath</key><string>/Users/rahul/Desktop/osiris/data/agent.log</string>
+  <key>StandardErrorPath</key><string>/Users/rahul/Desktop/osiris/data/agent.err</string>
+</dict>
+</plist>
