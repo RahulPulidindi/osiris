@@ -659,16 +659,20 @@ class MCPBroker(Broker):
         await self.resolve_account()
         result = await self.adapter.call("listPositions", self._account_args())
         payload = _extract_payload(result)
-        rows = payload.get("positions") or payload.get("results") or payload.get("data") or []
+        # Recursive: the venue wraps this in {"data": {"positions": [...]}}. The
+        # shallow read got the DICT under "data", failed isinstance(list), and
+        # returned {} -- so the ledger believed a funded, invested account was
+        # flat. Consequence in live trading: reconciliation adopted nothing and
+        # the next cycle RE-BOUGHT the whole book on top of existing positions.
+        rows = _find_list(payload, ("positions", "results")) or []
         out: dict[str, float] = {}
-        if isinstance(rows, list):
-            for row in rows:
-                if not isinstance(row, dict):
-                    continue
-                symbol = row.get("symbol") or row.get("ticker")
-                qty = _first_number(row, "quantity", "shares", "position")
-                if symbol and qty:
-                    out[str(symbol)] = out.get(str(symbol), 0.0) + qty
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            symbol = row.get("symbol") or row.get("ticker")
+            qty = _first_number(row, "quantity", "shares", "position")
+            if symbol and qty:
+                out[str(symbol)] = out.get(str(symbol), 0.0) + qty
         return out
 
     async def get_account_equity(self) -> float:
