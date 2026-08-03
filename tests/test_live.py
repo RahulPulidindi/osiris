@@ -556,6 +556,38 @@ class TestReviewPlaceSchemaSplit:
         # duplicate protection survives on the placement side.
         assert "ref_id" in broker._order_args(request)
 
+    async def test_review_finds_price_inside_data_envelope(self):
+        """Regression: review responses arrive wrapped in {"data": ...} like
+        every other Robinhood tool. A top-level read found nothing and
+        rejected orders whose review had actually PASSED at the venue."""
+        from osiris.execution.broker import OrderRequest
+        from osiris.execution.mcp_broker import MCPBroker
+        from osiris.types import OrderKind, Side
+
+        adapter = FakeAdapter(
+            {
+                "listAccounts": {"results": [{"account_number": ACCOUNT}]},
+                "reviewOrder": {
+                    "data": {"order": {"estimated_price": "86.78", "quantity": "0.23"}}
+                },
+            }
+        )
+        broker = MCPBroker(adapter)
+        await broker.resolve_account()
+
+        review = await broker.review(
+            OrderRequest(
+                symbol="KO",
+                side=Side.BUY,
+                notional_usd=20.0,
+                kind=OrderKind.MARKET,
+                idempotency_key="b" * 32,
+            )
+        )
+
+        assert review.accepted
+        assert review.estimated_price == pytest.approx(86.78)
+
     async def test_equity_is_found_inside_an_envelope(self):
         b = self.broker(
             {

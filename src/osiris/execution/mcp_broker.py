@@ -463,13 +463,29 @@ class MCPBroker(Broker):
             return ReviewResult(False, message=f"review transport error: {exc}")
 
         payload = _extract_payload(result)
-        price = _first_number(payload, "estimated_price", "price", "ask_price")
-        quantity = _first_number(payload, "estimated_quantity", "quantity", "shares")
+        # RECURSIVE search, not top-level. Robinhood wraps review responses in
+        # the same `{"data": ...}` envelope as every other tool, so a shallow
+        # read found nothing and the fail-closed branch rejected all four
+        # orders of a live session -- a review that PASSED at the venue was
+        # reported as unusable by our own parser. The account/equity readers
+        # already used the recursive finder; this now matches them.
+        price = _find_number(
+            payload,
+            ("estimated_price", "price", "ask_price", "last_trade_price", "amount"),
+        )
+        quantity = _find_number(
+            payload, ("estimated_quantity", "quantity", "shares")
+        )
         if quantity is None and price and price > 0:
             quantity = request.notional_usd / price
 
         # Fail closed: an unparseable review is not an approval.
         if price is None and quantity is None:
+            log.warning(
+                "mcp_broker.review_unparseable",
+                symbol=request.symbol,
+                shape="; ".join(describe_shape(payload)[:12]),
+            )
             return ReviewResult(
                 False,
                 message="review returned no usable price or quantity",
@@ -479,7 +495,7 @@ class MCPBroker(Broker):
             accepted=True,
             estimated_price=price,
             estimated_quantity=quantity,
-            estimated_cost=_first_number(payload, "estimated_cost", "total_cost")
+            estimated_cost=_find_number(payload, ("estimated_cost", "total_cost"))
             or request.notional_usd,
             message="ok",
             raw=payload,
