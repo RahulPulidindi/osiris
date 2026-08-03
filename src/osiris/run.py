@@ -211,11 +211,17 @@ class LiveAgent:
             journal_path=DATA_DIR / "journal-live.jsonl",
             broker=broker,
         )
+        # The market reader must exist BEFORE the ledger is seeded: seeding
+        # values positions at live quotes and deducts them from cash. With no
+        # market, quotes were empty, positions booked at $0 cost, cash stayed
+        # at full equity -- and the account appeared to be worth cash + holdings
+        # (a $100 account showed $192) while every position had avg_cost 0,
+        # which is a phantom 100% gain that poisons stops and P&L alike.
+        self.market = LiveMarket(self.conn.adapter)
+
         # Seed the ledger from the venue: the broker is truth, and starting from
         # an empty ledger would report every existing holding as a divergence.
         await self._seed_ledger(broker, equity)
-
-        self.market = LiveMarket(self.conn.adapter)
         self.loop = DailyLoop(
             settings=settings,
             limits=self.limits,
