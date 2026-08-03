@@ -588,6 +588,17 @@ class MCPBroker(Broker):
             )
 
         fills = self._parse_fills(payload, request)
+
+        # A market order that comes back "unconfirmed"/"pending" usually fills
+        # within seconds; the placement response simply raced the execution.
+        # Poll the order briefly so the fill is booked NOW rather than left for
+        # the next reconciliation -- which would see venue and ledger disagree
+        # and halt trading over what was actually a routine fill. (Live
+        # incident: three rank-exit sells filled at the venue while the ledger
+        # and dashboard kept showing the positions as held.)
+        if not fills and order_id and state not in {"filled"}:
+            fills = await self._await_fills(request, order_id)
+
         log.info(
             "mcp_broker.placed",
             symbol=request.symbol,
@@ -603,6 +614,58 @@ class MCPBroker(Broker):
             message=state or "submitted",
             raw=payload,
         )
+
+    async def _await_fills(
+        self, request: OrderRequest, order_id: str, *, attempts: int = 4
+    ) -> tuple[Fill, ...]:
+        """Poll the venue's order list until this order fills or time runs out.
+
+        Bounded and best-effort: an order still working after ~15s is left for
+        reconciliation, which now finds a consistent story (order open, position
+        pending) rather than a phantom divergence.
+        """
+        import asyncio as _asyncio
+
+        if not self.adapter.has("listOrders"):
+            return ()
+        for attempt in range(attempts):
+            await _asyncio.sleep(1.5 * (attempt + 1))
+            try:
+                result = await self.adapter.call("listOrders", self._account_args())
+            except Exception as exc:
+                log.debug("mcp_broker.order_poll_failed", error=str(exc))
+                continue
+            orders = _find_list(_extract_payload(result), ("orders", "results")) or []
+            record = next(
+                (
+                    o
+                    for o in orders
+                    if isinstance(o, dict)
+                    and str(_find_string(o, ("id", "order_id")) or "") == order_id
+                ),
+                None,
+            )
+            if record is None:
+                continue
+            state = str(_find_string(record, ("state", "status")) or "").lower()
+            if state in {"rejected", "cancelled", "canceled", "failed", "expired"}:
+                log.warning(
+                    "mcp_broker.order_died_after_submit",
+                    symbol=request.symbol,
+                    order_id=order_id,
+                    state=state,
+                )
+                return ()
+            fills = self._parse_fills(record, request)
+            if fills:
+                return fills
+        log.info(
+            "mcp_broker.order_still_working",
+            symbol=request.symbol,
+            order_id=order_id,
+            detail="left for reconciliation",
+        )
+        return ()
 
     def _parse_fills(self, payload: dict, request: OrderRequest) -> tuple[Fill, ...]:
         """Only booked as filled when the venue reports an executed quantity.
