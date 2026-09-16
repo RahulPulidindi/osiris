@@ -76,6 +76,37 @@ class TestMechanicalExits:
 
         assert plan.all_intents[0].side is Side.SELL
 
+    def test_dust_position_is_not_worth_an_order(self):
+        """Regression: fractional fills leave residue worth pennies.
+
+        After a five-week outage the account held five such remnants (NFLX
+        0.0003 shares, ~2 cents). The rank exit emitted a sell for each,
+        consuming a third of a 15-order daily budget on dust and crowding out
+        the real trades.
+        """
+        portfolio = make_portfolio(
+            positions=(
+                make_position("AAPL", 0.02),
+                make_position("MSFT", 5_000.0),
+            )
+        )
+        plan = build_rebalance_plan(portfolio, [], prices=PRICES)
+
+        assert [i.symbol for i in plan.exits] == ["MSFT"]
+        assert "AAPL" in plan.skipped
+
+    def test_dust_floor_never_suppresses_a_risk_exit(self):
+        """A stop must fire regardless of size. Only RANK exits are filtered."""
+        portfolio = make_portfolio(positions=(make_position("AAPL", 0.02),))
+        plan = build_rebalance_plan(
+            portfolio,
+            [],
+            prices=PRICES,
+            exit_signals=[ExitSignal("AAPL", "risk_exit", "stop breached")],
+        )
+
+        assert [i.reason for i in plan.exits] == ["risk_exit"]
+
     def test_risk_exit_overrides_the_ranking(self):
         """A stop fires even when the name is still top-ranked."""
         portfolio = make_portfolio(positions=(make_position("AAPL", 5_000.0),))

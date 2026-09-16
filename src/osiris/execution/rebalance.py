@@ -35,6 +35,18 @@ log = get_logger(__name__)
 # the benefit is noise. Trades below this fraction of equity are skipped.
 MIN_REBALANCE_WEIGHT = 0.0025
 
+# Dust floor for RANK exits, in dollars.
+#
+# Fractional fills leave residue: after selling 0.26719 shares of NFLX the
+# account still held 0.0003 shares, worth about two cents. Those remnants are
+# not risk, but they are positions, so the next rank exit emits a sell for each
+# one -- five such orders on the first cycle after a five-week outage, against
+# a 15-order daily budget on a $100 account, crowding out the real trades.
+#
+# Deliberately applied to rank exits ONLY. A risk or invalidation exit is never
+# suppressed: those are appended before the diff and are unaffected by this.
+MIN_EXIT_NOTIONAL_USD = 1.0
+
 
 @dataclass(frozen=True)
 class ExitSignal:
@@ -142,6 +154,9 @@ def build_rebalance_plan(
     for symbol in sorted(to_sell):
         notional = held_weights[symbol] * equity
         if notional <= 0:
+            continue
+        if notional < MIN_EXIT_NOTIONAL_USD:
+            plan.skipped[symbol] = f"dust position (${notional:.2f}); not worth an order"
             continue
         plan.exits.append(
             OrderIntent(

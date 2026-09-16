@@ -54,9 +54,42 @@ def is_write(tool: ToolSpec) -> bool:
     return bool(_WRITE_HINT.search(tool.name))
 
 
+# Asset classes this agent does NOT trade.
+#
+# Osiris is a US EQUITY agent. A tool scoped to another asset class can satisfy
+# a capability predicate by name alone and then be silently wrong, which is the
+# worst available outcome. Live incident (2026-09-16): Robinhood grew the tool
+# surface from 53 to 73 tools by adding crypto. `get_crypto_positions` and
+# `get_equity_positions` are both 20 characters, so the shortest-name tiebreak
+# fell through to alphabetical order and "crypto" won. The agent resolved
+# `placeOrder` to `place_crypto_order` -- one step from submitting crypto
+# orders for stock tickers. Only a differing required-argument name
+# (`rhs_account_number`) made the position read fail loudly enough to abort.
+_OTHER_ASSET_CLASSES = (
+    "crypto",
+    "option",
+    "forex",
+    "currency",
+    "futures",
+    "index",
+    "bond",
+    "treasury",
+)
+
+# Positive identifiers for the class we DO trade, used to break ties in favour
+# of an explicitly-equity tool rather than relying on name length.
+_EQUITY_HINT = re.compile(r"equity|stock", re.I)
+
+
+def is_equity_scoped(tool: ToolSpec) -> bool:
+    """True unless the tool name marks it as another asset class."""
+    name = tool.name.lower()
+    return not any(cls in name for cls in _OTHER_ASSET_CLASSES)
+
+
 def _read(pattern: str) -> Callable[[ToolSpec], bool]:
     rx = re.compile(pattern, re.I)
-    return lambda t: bool(rx.search(t.name)) and not is_write(t)
+    return lambda t: bool(rx.search(t.name)) and not is_write(t) and is_equity_scoped(t)
 
 
 CAPABILITIES: dict[str, Callable[[ToolSpec], bool]] = {
@@ -65,20 +98,19 @@ CAPABILITIES: dict[str, Callable[[ToolSpec], bool]] = {
     "getPortfolio": _read(r"portfolio"),
     "listPositions": lambda t: bool(re.search(r"position|holding", t.name, re.I))
     and not is_write(t)
-    and "option" not in t.name.lower(),
+    and is_equity_scoped(t),
     "listOrders": lambda t: bool(re.search(r"order", t.name, re.I))
     and bool(re.search(r"get|list|search|history", t.name, re.I))
-    and not is_write(t),
+    and not is_write(t)
+    and is_equity_scoped(t),
     "getQuotes": lambda t: bool(re.search(r"quote", t.name, re.I))
-    and "option" not in t.name.lower()
-    and "index" not in t.name.lower(),
-    # `index` must be excluded explicitly. The shortest-name tiebreak otherwise
-    # selects `get_index_historicals` over `get_equity_historicals`, which would
-    # silently return INDEX prices for every stock symbol -- momentum, volatility,
-    # and beta would all be computed from the wrong series while looking valid.
+    and is_equity_scoped(t),
+    # Asset-class scoping is load-bearing here. The shortest-name tiebreak would
+    # otherwise select `get_index_historicals` over `get_equity_historicals`,
+    # silently returning INDEX prices for every stock symbol -- momentum,
+    # volatility, and beta all computed from the wrong series while looking valid.
     "getHistoricals": lambda t: bool(re.search(r"historical", t.name, re.I))
-    and "option" not in t.name.lower()
-    and "index" not in t.name.lower(),
+    and is_equity_scoped(t),
     "getFundamentals": _read(r"fundamental"),
     "getFinancials": _read(r"financial"),
     "getTechnicalIndicators": _read(r"technical_indicator"),
@@ -97,15 +129,15 @@ CAPABILITIES: dict[str, Callable[[ToolSpec], bool]] = {
         re.search(r"review|simulate|preview|validate", t.name, re.I)
     )
     and bool(re.search(r"order|trade", t.name, re.I))
-    and "option" not in t.name.lower(),
+    and is_equity_scoped(t),
     # Writes. Match order|trade: a rename from `place_equity_order` to
     # `submit_equity_trade_v2` is a plausible drift and must still resolve.
     "placeOrder": lambda t: bool(re.search(r"order|trade", t.name, re.I))
     and is_write(t)
     and not re.search(r"cancel|review|watchlist|scan", t.name, re.I)
-    and "option" not in t.name.lower(),
+    and is_equity_scoped(t),
     "cancelOrder": lambda t: bool(re.search(r"cancel", t.name, re.I))
-    and "option" not in t.name.lower(),
+    and is_equity_scoped(t),
     "createScan": lambda t: bool(re.search(r"create_scan", t.name, re.I)),
 }
 
@@ -151,10 +183,20 @@ class CapabilityRegistry:
         predicate = CAPABILITIES.get(capability)
         if predicate is None:
             raise ValueError(f"Unknown capability: {capability}")
-        # Deterministic: shortest matching name wins, so `get_equity_quotes`
-        # is preferred over a longer incidental match.
+        # Deterministic, and EXPLICIT about asset class before length.
+        #
+        # Length alone was not enough: `get_crypto_positions` and
+        # `get_equity_positions` are the same length, so ordering fell through
+        # to alphabetical and selected crypto. An explicitly-equity name now
+        # always outranks an unqualified one, and length only breaks ties
+        # within a tier.
         matches = sorted(
-            (t for t in self._tools.values() if predicate(t)), key=lambda t: (len(t.name), t.name)
+            (t for t in self._tools.values() if predicate(t)),
+            key=lambda t: (
+                0 if _EQUITY_HINT.search(t.name) else 1,
+                len(t.name),
+                t.name,
+            ),
         )
         if not matches:
             raise ToolUnavailable(capability, self.tool_names)

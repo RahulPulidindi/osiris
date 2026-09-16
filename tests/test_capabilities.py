@@ -83,6 +83,58 @@ class TestCapabilityResolution:
         assert registry.resolve("reviewOrder").name == "review_equity_order"
         assert registry.resolve("cancelOrder").name == "cancel_equity_order"
 
+    def test_crypto_tools_never_satisfy_equity_capabilities(self) -> None:
+        """Regression, 2026-09-16: Robinhood grew 53 -> 73 tools by adding
+        crypto. `get_crypto_positions` and `get_equity_positions` are both 20
+        characters, so the shortest-name tiebreak fell through to alphabetical
+        order and crypto won. `placeOrder` resolved to `place_crypto_order` --
+        the agent was one step from submitting crypto orders for stock tickers.
+        """
+        surface = [
+            ToolSpec(name=n, description="", input_schema={})
+            for n in (
+                "get_crypto_positions",
+                "get_equity_positions",
+                "get_crypto_quotes",
+                "get_equity_quotes",
+                "place_crypto_order",
+                "place_equity_order",
+                "review_crypto_order",
+                "review_equity_order",
+                "cancel_crypto_order",
+                "cancel_equity_order",
+                "get_crypto_historicals",
+                "get_equity_historicals",
+                "get_crypto_orders",
+                "get_equity_orders",
+            )
+        ]
+        reg = CapabilityRegistry(surface)
+
+        assert reg.resolve("listPositions").name == "get_equity_positions"
+        assert reg.resolve("getQuotes").name == "get_equity_quotes"
+        assert reg.resolve("placeOrder").name == "place_equity_order"
+        assert reg.resolve("reviewOrder").name == "review_equity_order"
+        assert reg.resolve("cancelOrder").name == "cancel_equity_order"
+        assert reg.resolve("getHistoricals").name == "get_equity_historicals"
+        assert reg.resolve("listOrders").name == "get_equity_orders"
+
+    def test_crypto_only_surface_refuses_rather_than_mismatching(self) -> None:
+        """If ONLY crypto tools exist, equity capabilities must be unavailable.
+
+        Failing loudly is the point: trading crypto on an equity agent's
+        rankings is worse than not trading.
+        """
+        reg = CapabilityRegistry(
+            [
+                ToolSpec(name=n, description="", input_schema={})
+                for n in ("get_crypto_positions", "place_crypto_order")
+            ]
+        )
+
+        assert not reg.has("listPositions")
+        assert not reg.has("placeOrder")
+
     def test_resolves_by_shape_after_rename(self) -> None:
         """The whole point: a renamed tool still resolves."""
         renamed = [
