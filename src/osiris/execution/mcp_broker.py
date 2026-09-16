@@ -599,6 +599,11 @@ class MCPBroker(Broker):
                 symbol=request.symbol,
                 detail="venue returned neither an order id nor a state",
                 shape="; ".join(describe_shape(payload)[:10]),
+                # The venue sometimes answers in prose rather than an order
+                # object, and that prose is usually the actual reason. Without
+                # it the log says only "unidentifiable", which is a description
+                # of our parser rather than of the problem.
+                body=str(payload.get("text") or payload)[:300],
             )
             return PlaceResult(
                 order_id="",
