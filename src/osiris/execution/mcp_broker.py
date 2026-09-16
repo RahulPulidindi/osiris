@@ -579,6 +579,34 @@ class MCPBroker(Broker):
             _find_string(payload, ("id", "order_id", "ref_id")) or ""
         )
         state = str(_find_string(payload, ("state", "status")) or "").lower()
+
+        # Fail CLOSED when the response identifies nothing.
+        #
+        # No order id and no state means we cannot prove an order exists, so
+        # calling it accepted is a guess in the dangerous direction: the
+        # executor marks the idempotency key used and moves on, and the
+        # intended trade silently never happens. Live incident (2026-09-16): a
+        # SPGI rank exit passed review, returned a bare response, was journaled
+        # as `order_placed` with an empty id, and the position stayed in the
+        # book unsold with no error anywhere.
+        #
+        # Reporting it unplaced is safe in both worlds. If the order never
+        # reached the venue, the next cycle retries. If it did, no fill was
+        # invented here and reconciliation adopts the real position.
+        if not order_id and not state:
+            log.error(
+                "mcp_broker.place_unidentifiable",
+                symbol=request.symbol,
+                detail="venue returned neither an order id nor a state",
+                shape="; ".join(describe_shape(payload)[:10]),
+            )
+            return PlaceResult(
+                order_id="",
+                accepted=False,
+                message="venue returned no order id or state; treated as unplaced",
+                raw=payload,
+            )
+
         if state in {"rejected", "cancelled", "canceled", "failed"}:
             return PlaceResult(
                 order_id=order_id,

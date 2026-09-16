@@ -50,7 +50,13 @@ class FakeAdapter:
     def has(self, capability: str) -> bool:
         return capability in self.available
 
-    async def call(self, capability: str, args: dict | None = None) -> FakeResult:
+    # `**kwargs` mirrors the real adapter, which takes `retries=`. Without it
+    # the place path could not be tested at all: every call raised TypeError,
+    # which `place` catches and converts to AmbiguousOrderState -- so a genuine
+    # assertion failure was masked as a transport error.
+    async def call(
+        self, capability: str, args: dict | None = None, **kwargs: Any
+    ) -> FakeResult:
         self.calls.append((capability, args or {}))
         if capability not in self.responses:
             raise RuntimeError(f"tool unavailable: {capability}")
@@ -555,6 +561,37 @@ class TestReviewPlaceSchemaSplit:
         # ...while the order-args builder (used by place) must keep it, so
         # duplicate protection survives on the placement side.
         assert "ref_id" in broker._order_args(request)
+
+    async def test_unidentifiable_place_response_is_not_accepted(self):
+        """Regression: a bare place response was booked as `order_placed` with
+        an empty id, so a SPGI rank exit silently never happened while the
+        journal claimed success. No id and no state = unplaced."""
+        from osiris.execution.broker import OrderRequest
+        from osiris.execution.mcp_broker import MCPBroker
+        from osiris.types import OrderKind, Side
+
+        adapter = FakeAdapter(
+            {
+                "listAccounts": {"results": [{"account_number": ACCOUNT}]},
+                "reviewOrder": {"data": {"estimated_price": "412.87"}},
+                "placeOrder": {"data": {"guide": "some prose, no id, no state"}},
+            }
+        )
+        broker = MCPBroker(adapter)
+        await broker.resolve_account()
+
+        result = await broker.place(
+            OrderRequest(
+                symbol="SPGI",
+                side=Side.SELL,
+                notional_usd=23.39,
+                kind=OrderKind.MARKET,
+                idempotency_key="c" * 32,
+            )
+        )
+
+        assert not result.accepted
+        assert result.fills == ()
 
     async def test_review_finds_price_inside_data_envelope(self):
         """Regression: review responses arrive wrapped in {"data": ...} like
